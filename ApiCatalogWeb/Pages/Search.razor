@@ -1,0 +1,18 @@
+﻿@page "/search"
+
+<div class="container-fluid">
+
+    <input class="mt-3 form-control" type="text" @oninput="async e => await SearchAsync((string)e.Value)" />
+
+    @if (Results != null)
+    {
+        <ul class="mt-3 list-unstyled">
+            @foreach (var child in Results)
+            {
+                <li>
+                    <ApiIcon Kind="@child.Item.Kind" /> <a href="/catalog/@child.Item.ApiGuid">@child.Item.Name</a>
+                </li>
+            }
+        </ul>
+    }
+</div>

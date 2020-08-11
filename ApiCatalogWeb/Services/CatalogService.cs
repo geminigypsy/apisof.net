@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 using Dapper;
@@ -210,8 +209,9 @@ namespace ApiCatalogWeb.Services
         public CatalogService()
         {
             var connectionString = new SqliteConnectionStringBuilder()
-            {
-                DataSource = @"C:\Users\immo\Downloads\Indexing\apicatalog.db"
+            {                
+                Mode = SqliteOpenMode.ReadOnly,                
+                DataSource = @"C:\Users\immo\Downloads\Indexing\apicatalog.db"                
             }.ToString();
 
             _sqliteConnection = new SqliteConnection(connectionString);
@@ -234,6 +234,36 @@ namespace ApiCatalogWeb.Services
 
             return result;
 
+        }
+
+        public Task<IEnumerable<CatalogApi>> GetAllApisWithFullNameAsync()
+        {
+            return _sqliteConnection.QueryAsync<CatalogApi>(@"
+                WITH ApisH AS
+                (
+	                SELECT	a.ApiId,
+			                a.Kind,
+			                a.ApiGuid,
+			                a.ParentApiId,			
+			                a.Name AS Name
+	                FROM	Apis a
+	                WHERE	a.ParentApiId IS NULL	
+	                UNION ALL	
+	                SELECT	a.ApiId,
+			                a.Kind,
+			                a.ApiGuid,
+			                a.ParentApiId,
+			                CASE
+				                WHEN h.Name IS NULL
+				                THEN a.Name
+				                ELSE h.Name || '.' || a.Name
+			                END
+	                FROM	ApisH h
+				                JOIN APIs a ON a.ParentApiId = h.ApiId
+                )
+                SELECT	*
+                FROM	ApisH
+            ");
         }
 
         public async Task<IReadOnlyList<string>> GetFrameworksAsync()

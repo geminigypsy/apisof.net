@@ -21,7 +21,9 @@ namespace ApiCatalogWeb
             services.AddRazorPages();
             services.AddServerSideBlazor();
             services.AddSingleton<CatalogService>();
+            services.AddSingleton<CatalogSearchService>();
             services.AddSingleton<IconService>();
+            //services.AddHostedService<CatalogSearchServiceWarmUp>();
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)

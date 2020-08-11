@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using ApiCatalogWeb.Services;
 
 using Microsoft.AspNetCore.Components;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using ApiCatalog;
 
@@ -87,7 +86,7 @@ namespace ApiCatalogWeb.Shared
                         {
                             markupBuilder.Append("<span class=\"reference-current\">");
                         }
-                        else
+                        else if (api != null)
                         {
                             var referenceClass = GetReferenceClass(api.Kind);
                             markupBuilder.Append($"<span class=\"{referenceClass}\"");
