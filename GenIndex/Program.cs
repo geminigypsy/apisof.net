@@ -8,6 +8,8 @@ using System.Xml.Linq;
 using NuGet.Versioning;
 
 using ApiCatalog;
+using Microsoft.Data.Sqlite;
+using Dapper;
 
 namespace GenIndex
 {
@@ -21,14 +23,21 @@ namespace GenIndex
             var platformsPath = Path.Combine(indexPath, "platforms");
             var packageListPath = Path.Combine(indexPath, "packages.xml");
             var packagesPath = Path.Combine(indexPath, "packages");
+            var catalogDatPath = Path.Combine(indexPath, "apicatalog.dat");
+            var catalogDbPath = Path.Combine(indexPath, "apicatalog.db");
+            var suffixTreePath = Path.Combine(indexPath, "suffixtree.dat");
 
             var stopwatch = Stopwatch.StartNew();
 
             await UpdatePlatforms(archivePath);
             await GeneratePlatformIndex(platformsPath);
             await GeneratePackageIndex(packageListPath, packagesPath);
-            await ProduceCatalogBinary(platformsPath, packagesPath, Path.Combine(indexPath, "apicatalog.dat"));
-            await ProduceCatalogSQLite(platformsPath, packagesPath, Path.Combine(indexPath, "apicatalog.db"));
+            await ProduceCatalogBinary(platformsPath, packagesPath, catalogDatPath);
+            await ProduceCatalogSQLite(platformsPath, packagesPath, catalogDbPath);
+            await BuildSuffixTree(catalogDbPath, suffixTreePath);
+
+            //LookupSuffixTree(catalogDbPath, suffixTreePath);
+            //DumpSuffixTree(Path.Combine(indexPath, "suffixTree.dot"));
 
             Console.WriteLine($"Completed in {stopwatch.Elapsed}");
             Console.WriteLine($"Peak working set: {Process.GetCurrentProcess().PeakWorkingSet64 / (1024 * 1024):N2} MB");
@@ -168,6 +177,111 @@ namespace GenIndex
             var builder = await CatalogBuilderSQLite.CreateAsync(outputPath);
             builder.Index(platformsPath);
             builder.Index(packagesPath);
+        }
+
+        private static async Task BuildSuffixTree(string sqliteDbPath, string outputPath)
+        {
+            var connectionString = new SqliteConnectionStringBuilder()
+            {                
+                DataSource = sqliteDbPath
+            }.ToString();
+
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+
+            var rows = await connection.QueryAsync<(int Id, string FullName)>(@"
+                WITH ApiH AS
+                (
+	                SELECT	a.ApiId,
+			                a.Name AS FullName
+	                FROM	Apis a
+	                WHERE	a.ParentApiId IS NULL
+	
+	                UNION	ALL
+	
+	                SELECT	a.ApiId,
+			                h.FullName || '.' || a.Name
+	                FROM	ApiH h
+				                JOIN Apis a ON a.ParentApiId = h.ApiId
+                )
+
+                SELECT	ApiId,
+                        FullName
+                FROM	ApiH
+            ");
+
+            var builder = new SuffixTreeBuilder();
+
+            foreach (var (id, fullName) in rows)
+                builder.Add(fullName, id);
+
+            using var stream = File.Create(outputPath);
+            builder.WriteSuffixTree(stream);
+        }
+
+        private static void LookupSuffixTree(string sqliteDbPath, string suffixTreePath)
+        {
+            var connectionString = new SqliteConnectionStringBuilder()
+            {
+                DataSource = sqliteDbPath
+            }.ToString();
+
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+
+            var bytes = File.ReadAllBytes(suffixTreePath);
+            var suffixTree = SuffixTree.Load(bytes);
+
+            foreach (var id in suffixTree.Lookup("String.Length"))
+            {
+                var fullName = connection.ExecuteScalar<string>(@"
+                    WITH ApiH AS
+                    (
+	                    SELECT	a.ParentApiId,
+			                    a.Name AS FullName
+	                    FROM	Apis a
+	                    WHERE	a.ApiId = @ApiId
+
+	                    UNION	ALL
+
+	                    SELECT	a.ParentApiId,
+			                    a.Name || '.' || h.FullName
+	                    FROM	ApiH h
+				                    JOIN Apis a ON a.ApiId = h.ParentApiId
+                    )
+
+                    SELECT	FullName
+                    FROM	ApiH h
+                    WHERE	h.ParentApiId IS NULL
+                ", new { ApiId = id });
+
+                Console.WriteLine(fullName);
+            }
+
+            var stats = suffixTree.GetStats();
+            Console.WriteLine();
+            stats.WriteTo(Console.Out);
+            Console.WriteLine();
+        }
+
+        private static void DumpSuffixTree(string path)
+        {
+            var builder = new SuffixTreeBuilder();
+            builder.Add("System.Text.StringBuilder", 0);
+            //builder.Add("java.text.StringBuilder", 1);
+            //builder.Add("System.String", 2);
+
+            var suffixTree = builder.Build();
+            using (var writer = File.CreateText(path))
+                suffixTree.WriteDot(writer);
+
+            foreach (var i in suffixTree.Lookup("Builder"))
+                Console.WriteLine(i);
+
+            var stats = suffixTree.GetStats();
+            Console.WriteLine();
+            stats.WriteTo(Console.Out);
+            Console.WriteLine();
         }
     }
 }

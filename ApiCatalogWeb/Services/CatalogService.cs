@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 using Dapper;
@@ -152,6 +151,11 @@ namespace ApiCatalogWeb.Services
         }
     }
 
+    public class CatalogSearchResult : CatalogApi
+    {
+        public string Fullname { get; set; }
+    }
+
     public class CatalogApiSpine
     {
         public CatalogApi Selected { get; set; }
@@ -269,11 +273,28 @@ namespace ApiCatalogWeb.Services
         public List<(NuGetFramework framework, CatalogFrameworkAvailability)> Frameworks { get; } = new List<(NuGetFramework framework, CatalogFrameworkAvailability)>();
     }
 
+    public class CatalogSearchService
+    {
+        private readonly SuffixTree _suffixTree;
+
+        public CatalogSearchService()
+        {
+            var data = File.ReadAllBytes(@"C:\Users\immo\Downloads\Indexing\suffixtree.dat");
+            _suffixTree = SuffixTree.Load(data);
+        }
+
+        public IEnumerable<int> Search(string query)
+        {
+            return _suffixTree.Lookup(query).ToArray().Select(t => t.Value);
+        }
+    }
+
     public class CatalogService : IDisposable
     {
         private readonly SqliteConnection _sqliteConnection;
+        private readonly CatalogSearchService _catalogSearchService;
 
-        public CatalogService()
+        public CatalogService(CatalogSearchService catalogSearchService)
         {
             var connectionString = new SqliteConnectionStringBuilder()
             {
@@ -282,6 +303,7 @@ namespace ApiCatalogWeb.Services
 
             _sqliteConnection = new SqliteConnection(connectionString);
             _sqliteConnection.Open();
+            _catalogSearchService = catalogSearchService;
         }
 
         public async Task<CatalogStats> GetCatalogStatsAsync()
@@ -605,6 +627,41 @@ namespace ApiCatalogWeb.Services
             writer.Flush();
 
             return stringWriter.ToString();
+        }
+
+        public async Task<IEnumerable<CatalogSearchResult>> Search(string query)
+        {
+            var apiIds = _catalogSearchService.Search(query).Take(200);
+            var idStrings = string.Join(", ", apiIds);
+            var sql = $@"
+                WITH ApisH AS (
+	                SELECT	a.ApiId,
+			                a.Kind,
+			                a.ApiGuid,
+			                a.ParentApiId,
+			                a.Name,
+			                a.Name AS FullName
+	                FROM	Apis a
+	                WHERE   a.ApiId IN ({idStrings})
+
+	                UNION	ALL
+
+	                SELECT	h.ApiId,
+			                h.Kind,
+			                h.ApiGuid,
+			                a.ParentApiId,
+			                h.Name,
+			                a.Name || '.' || h.FullName
+	                FROM	ApisH h
+				                JOIN Apis a ON a.ApiId = h.ParentApiId
+                )
+                SELECT	*
+                FROM	ApisH
+                WHERE	ParentApiId IS NULL
+            ";
+
+            var results = await _sqliteConnection.QueryAsync<CatalogSearchResult>(sql);
+            return results.OrderBy(x => x.Fullname);
         }
 
         public void Dispose()
