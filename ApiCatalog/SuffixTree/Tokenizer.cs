@@ -9,6 +9,7 @@ namespace ApiCatalog
             if (text.Contains("("))
                 text = text.Substring(0, text.IndexOf('('));
 
+            // TODO: This doesn't work, we need to keep the member of generic types
             if (text.Contains("<"))
                 text = text.Substring(0, text.IndexOf('<'));
 

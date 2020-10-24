@@ -37,14 +37,14 @@ namespace ConsoleApp1
             _suffixTreeBaseline = SuffixTreeBaseline.Load(buffer);
         }
 
-        [Benchmark(Baseline = true)]
+        [Benchmark(Baseline = true, OperationsPerInvoke = 50)]
         public void SuffixTreeBaseline_Lookup()
         {
             foreach (var lookup in _lookups)
                 _suffixTreeBaseline.Lookup(lookup);
         }
 
-        [Benchmark]
+        [Benchmark(OperationsPerInvoke = 50)]
         public void SuffixTree_Lookup()
         {
             foreach (var lookup in _lookups)

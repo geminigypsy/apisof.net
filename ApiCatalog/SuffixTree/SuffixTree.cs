@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+
+using NuGet.Packaging.Signing;
 
 namespace ApiCatalog
 {
@@ -90,9 +93,11 @@ namespace ApiCatalog
             return MemoryMarshal.Cast<byte, (int Offset, int Value)>(valueBytes);
         }
 
-        private int GetChildIndex(int nodeOffset, ReadOnlySpan<byte> text)
+        private int GetChildIndex(ReadOnlySpan<int> children, ReadOnlySpan<byte> textBytes)
         {
-            var children = GetNodeChildren(nodeOffset);
+#if DEBUG
+            var text = Encoding.UTF8.GetString(textBytes);
+#endif
 
             var lo = 0;
             var hi = children.Length - 1;
@@ -101,35 +106,101 @@ namespace ApiCatalog
             {
                 var i = (lo + hi) / 2;
 
-                var childText = GetNodeText(children[i]);
-                var c = childText.SequenceCompareTo(text);
+                var childTextBytes = GetNodeText(children[i]);
+#if DEBUG
+                var childText = Encoding.UTF8.GetString(childTextBytes);
+#endif
+                var minLength = Math.Min(childTextBytes.Length, textBytes.Length);
+                var c = childTextBytes.Slice(0, minLength).SequenceCompareTo(textBytes.Slice(0, minLength));
                 if (c == 0)
-                    return children[i];
+                    c = childTextBytes.Length.CompareTo(textBytes.Length);
+
+                if (c == 0)
+                    return i;
                 if (c < 0)
                     lo = i + 1;
                 else
                     hi = i - 1;
             }
 
-            return -1;
+            return ~lo;
         }
 
         public ReadOnlySpan<(int Offset, int Value)> Lookup(string key)
         {
-            var currentNodeOffset = _rootOffset;
+            if (key.Length == 0)
+                return ReadOnlySpan<(int Offset, int Value)>.Empty;
 
-            foreach (var token in Tokenizer.Tokenize(key))
+            var results = new List<(int Offset, int Value)>();
+
+            var keyBytes = new ReadOnlySpan<byte>(Encoding.UTF8.GetBytes(key.ToLowerInvariant()));
+
+            var remainingNodes = new Queue<(int NodeOffset, int KeyIndex)>();
+            remainingNodes.Enqueue((_rootOffset, 0));
+
+            while (remainingNodes.Count > 0)
             {
-                var tokenBytes = Encoding.UTF8.GetBytes(token);
-                var childOffset = GetChildIndex(currentNodeOffset, tokenBytes);
+                var (nodeOffset, keyIndex) = remainingNodes.Dequeue();
+                if (keyIndex == keyBytes.Length)
+                {
+                    var stack = new Stack<int>();
+                    stack.Push(nodeOffset);
 
-                if (childOffset == -1)
-                    return null;
+                    while (stack.Count > 0)
+                    {
+                        var n = stack.Pop();
+                        foreach (var t in GetNodeValues(n))
+                            results.Add(t);
 
-                currentNodeOffset = childOffset;
+                        foreach (var c in GetNodeChildren(n))
+                            stack.Push(c);
+                    }
+
+                    continue;
+                }
+
+                var remainingKeyBytes = keyBytes[keyIndex..];
+
+#if DEBUG
+                var nodeText = Encoding.UTF8.GetString(GetNodeText(nodeOffset));
+                var remainingKey = Encoding.UTF8.GetString(remainingKeyBytes);
+#endif
+
+                var children = GetNodeChildren(nodeOffset);
+                var childIndex = GetChildIndex(children, remainingKeyBytes.Slice(0, 1));
+
+                if (childIndex < 0)
+                    childIndex = ~childIndex;
+
+                for (var i = childIndex; i < children.Length; i++)
+                {
+                    var child = children[i];
+                    var childTextBytes = GetNodeText(child);
+                    var prefixBytes = GetCommonPrefix(childTextBytes, remainingKeyBytes);
+
+#if DEBUG
+                    var childText = Encoding.UTF8.GetString(childTextBytes);
+                    var prefix = Encoding.UTF8.GetString(prefixBytes);
+#endif
+
+                    if (prefixBytes.Length == 0)
+                        break;
+
+                    remainingNodes.Enqueue((child, keyIndex + prefixBytes.Length));
+                }
             }
 
-            return GetNodeValues(currentNodeOffset);
+            return results.ToArray();
+        }
+
+        private ReadOnlySpan<byte> GetCommonPrefix(ReadOnlySpan<byte> childText, ReadOnlySpan<byte> remainingTokenBytes)
+        {
+            var length = Math.Min(childText.Length, remainingTokenBytes.Length);
+            var position = 0;
+            while (position < length && childText[position] == remainingTokenBytes[position])
+                position++;
+
+            return childText.Slice(0, position);
         }
 
         public void WriteDot(TextWriter writer)

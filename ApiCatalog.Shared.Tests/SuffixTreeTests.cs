@@ -57,6 +57,58 @@ namespace ApiCatalog.Shared.Tests
             );
         }
 
+        [Fact]
+        public void SuffixTree_Suffix_ReturnsElement_2()
+        {
+            Matches(
+                keysAndValuesText: @"
+                    System.Text.StringBuilder
+                ",
+                input: @"
+                    strbui
+                ",
+                expectedValuesText: @"
+                    1
+                "
+            );
+        }
+
+        [Fact]
+        public void SuffixTree_Suffix_ReturnsElement_3()
+        {
+            Matches(
+                keysAndValuesText: @"
+                    System.Text.StringBuilder.Length
+                ",
+                input: @"
+                    strbui.len
+                ",
+                expectedValuesText: @"
+                    1
+                "
+            );
+        }
+
+        [Fact]
+        public void SuffixTree_Suffix_ReturnsElement_4()
+        {
+            Matches(
+                keysAndValuesText: @"
+                    System
+                    System.OperatingSystem
+                    System.OperatingSystem.IsWindows()
+                    System.OperatingSystem.IsWindowsVersionAtLeast(int, int, int)
+                ",
+                input: @"
+                    iswindows
+                ",
+                expectedValuesText: @"
+                    3
+                    4
+                "
+            );
+        }
+
         private void Matches(string keysAndValuesText, string input, string expectedValuesText)
         {
             var keysAndValues = GetKeysAndValues(keysAndValuesText);

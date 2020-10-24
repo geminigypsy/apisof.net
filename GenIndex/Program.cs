@@ -29,11 +29,11 @@ namespace GenIndex
 
             var stopwatch = Stopwatch.StartNew();
 
-            await UpdatePlatforms(archivePath);
-            await GeneratePlatformIndex(platformsPath);
-            await GeneratePackageIndex(packageListPath, packagesPath);
-            await ProduceCatalogBinary(platformsPath, packagesPath, catalogDatPath);
-            await ProduceCatalogSQLite(platformsPath, packagesPath, catalogDbPath);
+            //await UpdatePlatforms(archivePath);
+            //await GeneratePlatformIndex(platformsPath);
+            //await GeneratePackageIndex(packageListPath, packagesPath);
+            //await ProduceCatalogBinary(platformsPath, packagesPath, catalogDatPath);
+            //await ProduceCatalogSQLite(platformsPath, packagesPath, catalogDbPath);
             await BuildSuffixTree(catalogDbPath, suffixTreePath);
 
             //LookupSuffixTree(catalogDbPath, suffixTreePath);
